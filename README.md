@@ -1,1 +1,1 @@
-# make_subtitle_4_local_videos
+# 로컬 저장소에 가지고 있는 동영상 파일의 자막 만들기
