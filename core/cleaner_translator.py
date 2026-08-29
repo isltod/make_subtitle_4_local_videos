@@ -139,19 +139,23 @@ class GeminiSubtitleCleaner:
 
     @staticmethod
     def _parse_gemini_response(text: str) -> dict[int, str]:
-        """Parses `ID | text` lines from Gemini response."""
+        """Parses `ID | text` lines from Gemini response, preserving multi-line subtitle dialogue."""
         result = {}
         pattern = re.compile(r"^\s*\[?(\d+)\]?\s*(?:\||:|-|\.)\s*(.+)$")
+        current_idx = None
 
-        for line in text.splitlines():
-            line = line.strip()
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
             if not line:
                 continue
             match = pattern.match(line)
             if match:
-                idx = int(match.group(1))
+                current_idx = int(match.group(1))
                 content = match.group(2).strip()
-                result[idx] = content
+                result[current_idx] = content
+            elif current_idx is not None:
+                # Append continuation lines (e.g. second speaker dialogue starting with -)
+                result[current_idx] += f"\n{line}"
 
         return result
 

@@ -1,15 +1,17 @@
 @echo off
 chcp 65001 > nul
-title Local Video Subtitle Generator (AI 자막 생성기)
+title Local Video Subtitle Generator
+
 echo ================================================================
-echo 🎬 Local Video Subtitle Generator 를 실행합니다...
-echo (RTX 3090 Whisper + Gemini 3.7 Flash)
+echo   Local Video Subtitle Generator
 echo ================================================================
+echo.
 
 cd /d "%~dp0"
-if exist ".\.venv\Scripts\streamlit.exe" (
-    ".\.venv\Scripts\streamlit.exe" run app.py
+
+if exist "%~dp0.venv\Scripts\streamlit.exe" (
+    "%~dp0.venv\Scripts\streamlit.exe" run app.py
 ) else (
-    echo [ERROR] .venv 가상환경이 발견되지 않았습니다.
+    echo [ERROR] .venv virtual environment not found.
     pause
 )
