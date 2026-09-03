@@ -26,13 +26,64 @@ class SubtitleParser:
     """Handles loading, parsing, manipulating, and saving subtitle files."""
 
     @staticmethod
+    def _detect_encoding(file_path: Path) -> str:
+        """Automatically detects file encoding (UTF-8, UTF-8-SIG, CP949, EUC-KR, Windows-1252, etc.)."""
+        with open(file_path, "rb") as f:
+            raw = f.read(65536)
+
+        # 1. BOM checks
+        if raw.startswith(b"\xef\xbb\xbf"):
+            return "utf-8-sig"
+        if raw.startswith(b"\xff\xfe"):
+            return "utf-16-le"
+        if raw.startswith(b"\xfe\xff"):
+            return "utf-16-be"
+
+        # 2. Try UTF-8 full read
+        try:
+            with open(file_path, "rb") as f:
+                f.read().decode("utf-8")
+            return "utf-8"
+        except UnicodeDecodeError:
+            pass
+
+        # 3. Try charset_normalizer
+        try:
+            import charset_normalizer
+            match = charset_normalizer.from_path(file_path).best()
+            if match and match.encoding:
+                return match.encoding
+        except Exception:
+            pass
+
+        # 4. Fallback common encodings
+        for enc in ["cp949", "euc-kr", "windows-1252", "latin-1", "iso-8859-1"]:
+            try:
+                with open(file_path, "rb") as f:
+                    f.read().decode(enc)
+                return enc
+            except Exception:
+                continue
+
+        return "utf-8"
+
+    @staticmethod
     def load(file_path: str | Path) -> List[SubtitleItem]:
-        """Loads a subtitle file (.srt, .vtt, .ass, etc.) and converts to SubtitleItem list."""
+        """Loads a subtitle file (.srt, .vtt, .ass, etc.) with automatic encoding detection."""
         path = Path(file_path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"Subtitle file not found: {path}")
 
-        subs = pysubs2.load(str(path), encoding="utf-8")
+        encoding = SubtitleParser._detect_encoding(path)
+        try:
+            subs = pysubs2.load(str(path), encoding=encoding)
+        except Exception:
+            # Fallback with cp949 or latin-1 if primary detection fails
+            try:
+                subs = pysubs2.load(str(path), encoding="cp949")
+            except Exception:
+                subs = pysubs2.load(str(path), encoding="latin-1")
+
         items = []
         for idx, event in enumerate(subs, start=1):
             text = event.text.replace(r"\N", "\n").replace(r"\n", "\n").strip()
