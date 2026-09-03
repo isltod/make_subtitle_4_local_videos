@@ -266,7 +266,7 @@ with tab_single:
     else:
         uploaded_file = st.file_uploader(
             "동영상 또는 자막 파일 업로드",
-            type=["mp4", "mkv", "avi", "mov", "webm", "srt", "vtt", "ass"],
+            type=["mp4", "mkv", "avi", "mov", "webm", "srt", "vtt", "ass", "smi", "sami"],
         )
         if uploaded_file:
             temp_save = TEMP_DIR / uploaded_file.name

@@ -226,17 +226,16 @@ class SubtitlePipeline:
         """Searches for existing subtitle file matching the video name in the same directory."""
         parent = video_path.parent
         stem = video_path.stem
-        # Candidates to look for: video.srt, video.en.srt, video.vtt, video.ja.srt, etc.
+        # Candidates to look for: video.srt, video.en.srt, video.smi, video.SMI, etc.
         for ext in SUPPORTED_SUBTITLE_EXTS:
-            # 1. Exact stem match: video.srt
-            cand = parent / f"{stem}{ext}"
-            if cand.exists() and not cand.name.endswith(".ko.srt"):
-                return cand
-            # 2. Common language suffix: video.en.srt, video.ja.srt, video.zh.srt, video.und.srt
-            for lang in ["en", "ja", "zh", "und", "eng", "jpn"]:
-                cand_lang = parent / f"{stem}.{lang}{ext}"
-                if cand_lang.exists():
-                    return cand_lang
+            for cand in [parent / f"{stem}{ext}", parent / f"{stem}{ext.upper()}"]:
+                if cand.exists() and not cand.name.endswith(".ko.srt"):
+                    return cand
+            # Common language suffixes: .en, .ja, .zh, .und, .eng, .jpn, .kor
+            for lang in ["en", "ja", "zh", "und", "eng", "jpn", "kor"]:
+                for cand_lang in [parent / f"{stem}.{lang}{ext}", parent / f"{stem}.{lang}{ext.upper()}"]:
+                    if cand_lang.exists() and not cand_lang.name.endswith(".ko.srt"):
+                        return cand_lang
         return None
 
 
