@@ -59,4 +59,4 @@ TRANSLATION_SYSTEM_PROMPT = """당신은 넷플릭스 및 OTT 전문 영상 자�
 # ==========================================
 SUPPORTED_VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".wmv", ".ts", ".m4v"}
 SUPPORTED_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".wma"}
-SUPPORTED_SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
+SUPPORTED_SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".smi", ".sami"}
