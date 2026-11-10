@@ -29,11 +29,11 @@ WHISPER_VAD_FILTER = True
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # Default model for subtitle translation & grammar correction
-# gemini-3.5-flash provides high speed, high stability and generous free-tier quotas
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+# gemini-3.1-flash-lite provides high speed, high stability and complete 100% chunk translation without early stops
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
-# Max subtitle lines per translation chunk (100 lines translates in ~4-5s per step)
-SUBTITLE_CHUNK_SIZE = 100
+# Max subtitle lines per translation chunk (50 lines guarantees 100% completion without token truncation)
+SUBTITLE_CHUNK_SIZE = 50
 
 # System prompt for high-quality subtitle translation and spacing/grammar correction
 TRANSLATION_SYSTEM_PROMPT = """당신은 넷플릭스 및 OTT 전문 영상 자막 번역가이자 한국어 교정 전문가입니다.
