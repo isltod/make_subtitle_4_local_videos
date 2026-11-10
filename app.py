@@ -92,12 +92,21 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🧠 모델 설정")
-    selected_gemini_model = st.selectbox(
+    gemini_model_options = [
+        "gemini-3.1-flash-lite (추천: 초고속 & 누락 없는 가장 안정적인 품질)",
+        "gemini-flash-lite-latest (최신 경량 자동)",
+        "gemini-3.5-flash-lite (고속 & 넉넉한 무료 쿼터)",
+        "gemini-3.8-flash (최신 고지능 모델)",
+        "gemini-3.7-flash",
+        "gemini-3.5-flash",
+    ]
+    selected_gemini_label = st.selectbox(
         "Gemini 번역 모델",
-        ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"],
+        gemini_model_options,
         index=0,
-        help="Gemini 3.5 Flash / 3.6 Flash가 가장 빠르고 안정적인 자막 번역 품질을 제공합니다.",
+        help="Gemini 3.1 Flash-Lite는 응답 중단 없이 100% 자막 번역을 보장하는 가장 안정적인 모델입니다.",
     )
+    selected_gemini_model = selected_gemini_label.split()[0]
 
     selected_whisper_model = st.selectbox(
         "Whisper STT 모델",
