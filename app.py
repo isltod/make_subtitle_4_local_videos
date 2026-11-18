@@ -85,10 +85,27 @@ with st.sidebar:
 
     # API Status Check
     api_key = os.getenv("GEMINI_API_KEY", "")
-    if api_key and "your_gemini_api_key" not in api_key:
-        st.success(f"🔑 Gemini API 키 연결됨 (`{api_key[:4]}...{api_key[-3:]}`)")
+    if not api_key or "your_gemini_api_key" in api_key or api_key == "GEMINI_API_KEY":
+        st.warning("⚠️ Gemini API 키 설정이 필요합니다.")
+        input_key = st.text_input(
+            "Gemini API 키 입력",
+            type="password",
+            help="Google AI Studio (https://aistudio.google.com/)에서 무료로 발급받을 수 있습니다.",
+        )
+        if input_key:
+            clean_key = input_key.strip()
+            os.environ["GEMINI_API_KEY"] = clean_key
+            api_key = clean_key
+            st.success(f"🔑 키가 임시 적용되었습니다 (`{clean_key[:4]}...{clean_key[-3:]}`)")
+            if st.button("💾 이 PC에 영구 저장 (.env)"):
+                try:
+                    with open(Path(__file__).parent / ".env", "w", encoding="utf-8") as f:
+                        f.write(f"GEMINI_API_KEY={clean_key}\n")
+                    st.success("✅ .env 파일에 저장되었습니다! 다음부터 자동으로 연결됩니다.")
+                except Exception as e:
+                    st.error(f"저장 실패: {e}")
     else:
-        st.error("⚠️ `.env` 파일에 GEMINI_API_KEY가 없습니다.")
+        st.success(f"🔑 Gemini API 키 연결됨 (`{api_key[:4]}...{api_key[-3:]}`)")
 
     st.markdown("---")
     st.subheader("🧠 모델 설정")
