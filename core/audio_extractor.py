@@ -8,8 +8,16 @@ from config import TEMP_DIR, SUPPORTED_AUDIO_EXTS
 class AudioExtractor:
     """Extracts clean audio tracks from video files using FFmpeg."""
 
-    def __init__(self, ffmpeg_bin: str = "ffmpeg"):
-        self.ffmpeg_bin = ffmpeg_bin
+    def __init__(self, ffmpeg_bin: Optional[str] = None):
+        if ffmpeg_bin:
+            self.ffmpeg_bin = ffmpeg_bin
+        else:
+            # Check local portable bin/ffmpeg.exe first, then fallback to system "ffmpeg"
+            local_bin = Path(__file__).resolve().parent.parent / "bin" / "ffmpeg.exe"
+            if local_bin.exists():
+                self.ffmpeg_bin = str(local_bin)
+            else:
+                self.ffmpeg_bin = "ffmpeg"
 
     def extract_audio(
         self,

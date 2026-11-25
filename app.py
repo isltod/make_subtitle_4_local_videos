@@ -15,6 +15,8 @@ from config import (
     WHISPER_MODEL_SIZE,
     WHISPER_DEVICE,
     WHISPER_COMPUTE_TYPE,
+    WHISPER_HARDWARE_DESC,
+    WHISPER_VAD_FILTER,
     SUPPORTED_VIDEO_EXTS,
     SUPPORTED_SUBTITLE_EXTS,
     TRANSLATION_SYSTEM_PROMPT,
@@ -85,10 +87,27 @@ with st.sidebar:
 
     # API Status Check
     api_key = os.getenv("GEMINI_API_KEY", "")
-    if api_key and "your_gemini_api_key" not in api_key:
-        st.success(f"🔑 Gemini API 키 연결됨 (`{api_key[:4]}...{api_key[-3:]}`)")
+    if not api_key or "your_gemini_api_key" in api_key or api_key == "GEMINI_API_KEY":
+        st.warning("⚠️ Gemini API 키 설정이 필요합니다.")
+        input_key = st.text_input(
+            "Gemini API 키 입력",
+            type="password",
+            help="Google AI Studio (https://aistudio.google.com/)에서 무료로 발급받을 수 있습니다.",
+        )
+        if input_key:
+            clean_key = input_key.strip()
+            os.environ["GEMINI_API_KEY"] = clean_key
+            api_key = clean_key
+            st.success(f"🔑 키가 임시 적용되었습니다 (`{clean_key[:4]}...{clean_key[-3:]}`)")
+            if st.button("💾 이 PC에 영구 저장 (.env)"):
+                try:
+                    with open(Path(__file__).parent / ".env", "w", encoding="utf-8") as f:
+                        f.write(f"GEMINI_API_KEY={clean_key}\n")
+                    st.success("✅ .env 파일에 저장되었습니다! 다음부터 자동으로 연결됩니다.")
+                except Exception as e:
+                    st.error(f"저장 실패: {e}")
     else:
-        st.error("⚠️ `.env` 파일에 GEMINI_API_KEY가 없습니다.")
+        st.success(f"🔑 Gemini API 키 연결됨 (`{api_key[:4]}...{api_key[-3:]}`)")
 
     st.markdown("---")
     st.subheader("🧠 모델 설정")
@@ -115,7 +134,17 @@ with st.sidebar:
         help="RTX 3090(24GB)에서는 최고 성능의 large-v3를 추천합니다.",
     )
 
-    st.info(f"🎮 **하드웨어 가속**: {WHISPER_DEVICE.upper()} ({WHISPER_COMPUTE_TYPE})")
+    use_vad_filter = st.checkbox(
+        "VAD(음성 감지) 필터 사용",
+        value=WHISPER_VAD_FILTER,
+        help="체크 해제(기본/권장): 전화기 필터 음성, 무전기, BGM이 깔린 대사, 속삭임 등의 누락을 완벽히 방지합니다.\n체크 시: Silero VAD로 무음 구간을 선별하여 처리합니다 (특수 음향 효과 대사가 누락될 수 있음).",
+    )
+
+    if WHISPER_DEVICE == "cuda":
+        st.success(f"🎮 **하드웨어 가속**: {WHISPER_HARDWARE_DESC} (`{WHISPER_COMPUTE_TYPE}`)")
+    else:
+        st.info(f"💻 **하드웨어**: {WHISPER_HARDWARE_DESC}")
+        st.caption("💡 GPU가 없는 PC에서는 Whisper 모델을 `medium` 또는 `small`로 선택하시면 훨씬 빠른 속도로 변환할 수 있습니다.")
 
     st.markdown("---")
     st.subheader("📝 맞춤 번역 지시사항 (선택)")
@@ -221,7 +250,7 @@ with tab_batch:
             log_container = st.container()
 
             # Initialize Pipeline with selected models
-            custom_stt = WhisperTranscriber(model_size=selected_whisper_model)
+            custom_stt = WhisperTranscriber(model_size=selected_whisper_model, vad_filter=use_vad_filter)
             custom_cleaner = GeminiSubtitleCleaner(model_name=selected_gemini_model)
             batch_pipeline = SubtitlePipeline(stt=custom_stt, cleaner=custom_cleaner)
 
@@ -314,7 +343,7 @@ with tab_single:
             single_status.info(f"⏳ {msg}")
             single_prog.progress(int(pct), text=f"{msg} ({pct:.0f}%)")
 
-        custom_stt = WhisperTranscriber(model_size=selected_whisper_model)
+        custom_stt = WhisperTranscriber(model_size=selected_whisper_model, vad_filter=use_vad_filter)
         custom_cleaner = GeminiSubtitleCleaner(model_name=selected_gemini_model)
         single_pipeline = SubtitlePipeline(stt=custom_stt, cleaner=custom_cleaner)
 
