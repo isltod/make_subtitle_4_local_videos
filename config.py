@@ -15,14 +15,41 @@ TEMP_DIR.mkdir(exist_ok=True)
 # ==========================================
 # 2. Hardware & STT (Whisper) Settings
 # ==========================================
+def get_hardware_config():
+    """
+    Automatically detects available hardware (NVIDIA GPU vs CPU)
+    and selects the optimal device and compute type.
+    """
+    env_device = os.getenv("WHISPER_DEVICE")
+    env_compute = os.getenv("WHISPER_COMPUTE_TYPE")
+    if env_device and env_compute:
+        return env_device, env_compute, f"{env_device.upper()} ({env_compute})"
+
+    try:
+        import torch
+        import ctranslate2
+        if torch.cuda.is_available() and ctranslate2.get_cuda_device_count() > 0:
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            supported = ctranslate2.get_supported_compute_types("cuda")
+            if "float16" in supported and vram_gb >= 6.0:
+                return "cuda", "float16", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB)"
+            elif "int8_float16" in supported:
+                return "cuda", "int8_float16", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB - 경량 가속)"
+            else:
+                return "cuda", "float32", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB)"
+    except Exception:
+        pass
+
+    return "cpu", "int8", "CPU 모드 (인텔/AMD 프로세서 INT8 가속)"
+
+WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_HARDWARE_DESC = get_hardware_config()
 # Model options: 'large-v3', 'large-v2', 'medium', 'small', 'base'
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")
-# Device options: 'cuda', 'cpu'
-WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
-# Compute types: 'float16', 'bfloat16', 'int8_float16', 'int8'
-WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "float16")
-# Enable Voice Activity Detection filter to remove silence/noise
-WHISPER_VAD_FILTER = True
+# Voice Activity Detection (VAD) filter:
+# False (권장): 옛날 전화기/무전기 필터 음성, BGM/음향 효과가 깔린 대사, 속삭임 등의 누락을 완벽히 방지합니다.
+# Whisper 내장 hallucination_silence_threshold(2.0s) 및 no_speech_threshold가 환각과 무음을 안전하게 제어합니다.
+WHISPER_VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "False").lower() in ("true", "1", "yes")
 
 # ==========================================
 # 3. Gemini LLM Translation & Cleaning Settings

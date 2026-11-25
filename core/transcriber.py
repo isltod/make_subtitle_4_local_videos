@@ -46,10 +46,12 @@ class WhisperTranscriber:
         model_size: str = WHISPER_MODEL_SIZE,
         device: str = WHISPER_DEVICE,
         compute_type: str = WHISPER_COMPUTE_TYPE,
+        vad_filter: bool = WHISPER_VAD_FILTER,
     ):
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
+        self.vad_filter = vad_filter
 
     def _get_model(self) -> WhisperModel:
         """Loads and caches the WhisperModel in GPU VRAM (without Windows symlink issues)."""
@@ -74,19 +76,33 @@ class WhisperTranscriber:
 
             print(f"📦 Loading Whisper model [{model_target}] on [{self.device}:{self.compute_type}]...")
             t0 = time.time()
-            WhisperTranscriber._model_instance = WhisperModel(
-                model_target,
-                device=self.device,
-                compute_type=self.compute_type,
-            )
-            print(f"✅ Whisper model loaded in {time.time() - t0:.2f}s")
+            try:
+                WhisperTranscriber._model_instance = WhisperModel(
+                    model_target,
+                    device=self.device,
+                    compute_type=self.compute_type,
+                )
+                print(f"✅ Whisper model loaded in {time.time() - t0:.2f}s")
+            except Exception as e:
+                if self.device != "cpu":
+                    print(f"⚠️ GPU 모델 로드 실패 ({e}). 안전한 CPU 모드(int8)로 자동 전환합니다...")
+                    self.device = "cpu"
+                    self.compute_type = "int8"
+                    WhisperTranscriber._model_instance = WhisperModel(
+                        model_target,
+                        device="cpu",
+                        compute_type="int8",
+                    )
+                    print(f"✅ Whisper CPU 모드로 로드 완료 ({time.time() - t0:.2f}s)")
+                else:
+                    raise
         return WhisperTranscriber._model_instance
 
     def transcribe(
         self,
         audio_path: str | Path,
         language: Optional[str] = None,
-        vad_filter: bool = WHISPER_VAD_FILTER,
+        vad_filter: Optional[bool] = None,
         progress_callback: Optional[Callable[[int, float, float, str], None]] = None,
     ) -> List[SubtitleItem]:
         """
@@ -95,7 +111,7 @@ class WhisperTranscriber:
         Args:
             audio_path: Path to the .wav audio file.
             language: Optional language code (e.g. 'en', 'ja', 'ko', 'zh', or None for auto-detection).
-            vad_filter: Whether to apply Silero VAD to filter out silence/background noise.
+            vad_filter: Whether to apply Silero VAD to filter out silence/background noise (defaults to instance/config).
             progress_callback: Optional callback(segment_index, current_timestamp_sec, total_duration_sec, text).
 
         Returns:
@@ -107,12 +123,14 @@ class WhisperTranscriber:
         # Decode once to numpy array so we can fast-detect language before applying punctuation prompt
         audio_array = decode_audio(audio_file, sampling_rate=16000)
 
+        actual_vad = self.vad_filter if vad_filter is None else vad_filter
+
         target_language = language
         if not target_language:
             try:
                 detected_code, _, _ = model.detect_language(
                     audio_array,
-                    vad_filter=vad_filter,
+                    vad_filter=actual_vad,
                     language_detection_segments=1,
                 )
                 target_language = detected_code
@@ -122,8 +140,11 @@ class WhisperTranscriber:
         initial_prompt = self.PUNCTUATION_PROMPTS.get(target_language) if target_language else None
 
         # Run transcription with faster-whisper on GPU with word-level timestamps & punctuation prompt
-        # condition_on_previous_text=True keeps proper punctuation/casing across all 30s windows,
-        # while vad_filter + hallucination_silence_threshold + temperature fallback prevent repetition loops.
+        # When vad_filter=False (recommended), Whisper's internal hallucination_silence_threshold and no_speech_threshold
+        # prevent repetition loops while preserving bandpass telephone speech, whispers, and BGM dialogues.
+        # When vad_filter=True, sensitive threshold=0.35 is used.
+        vad_params = dict(threshold=0.35, min_silence_duration_ms=350, speech_pad_ms=250) if actual_vad else None
+
         segments, info = model.transcribe(
             audio_array,
             language=target_language,
@@ -131,8 +152,8 @@ class WhisperTranscriber:
             temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
             condition_on_previous_text=True,
             initial_prompt=initial_prompt,
-            vad_filter=vad_filter,
-            vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=150),
+            vad_filter=actual_vad,
+            vad_parameters=vad_params,
             word_timestamps=True,
             hallucination_silence_threshold=2.0,
         )
