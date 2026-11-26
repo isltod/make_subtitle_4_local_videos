@@ -18,32 +18,48 @@ TEMP_DIR.mkdir(exist_ok=True)
 def get_hardware_config():
     """
     Automatically detects available hardware (NVIDIA GPU vs CPU)
-    and selects the optimal device and compute type.
+    and selects the optimal device, compute type, description, and device index.
+    Skips legacy GPUs with Compute Capability < 6.0 (e.g. Maxwell GTX 9xx) because
+    CTranslate2 4.x CUDA 12 kernels require CC >= 6.0 (Pascal or newer).
     """
     env_device = os.getenv("WHISPER_DEVICE")
     env_compute = os.getenv("WHISPER_COMPUTE_TYPE")
+    env_idx = int(os.getenv("WHISPER_DEVICE_INDEX", "0"))
     if env_device and env_compute:
-        return env_device, env_compute, f"{env_device.upper()} ({env_compute})"
+        return env_device, env_compute, f"{env_device.upper()} ({env_compute})", env_idx
 
     try:
         import torch
         import ctranslate2
-        if torch.cuda.is_available() and ctranslate2.get_cuda_device_count() > 0:
-            gpu_name = torch.cuda.get_device_name(0)
-            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+
+        cuda_count = ctranslate2.get_cuda_device_count()
+        if torch.cuda.is_available() and cuda_count > 0:
             supported = ctranslate2.get_supported_compute_types("cuda")
-            if "float16" in supported and vram_gb >= 6.0:
-                return "cuda", "float16", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB)"
-            elif "int8_float16" in supported:
-                return "cuda", "int8_float16", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB - 경량 가속)"
-            else:
-                return "cuda", "float32", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB)"
+            best_gpu = None  # (vram_gb, idx, name)
+
+            for idx in range(min(torch.cuda.device_count(), cuda_count)):
+                props = torch.cuda.get_device_properties(idx)
+                # CTranslate2 CUDA 12 builds require Compute Capability >= 6.0
+                if props.major < 6:
+                    continue
+                vram_gb = props.total_memory / (1024**3)
+                if best_gpu is None or vram_gb > best_gpu[0]:
+                    best_gpu = (vram_gb, idx, props.name)
+
+            if best_gpu is not None:
+                vram_gb, idx, gpu_name = best_gpu
+                if "float16" in supported and vram_gb >= 6.0:
+                    return "cuda", "float16", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB)", idx
+                elif "int8_float16" in supported and vram_gb >= 4.0:
+                    return "cuda", "int8_float16", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB - 경량 가속)", idx
+                elif vram_gb >= 6.0:
+                    return "cuda", "float32", f"NVIDIA GPU ({gpu_name}, VRAM {vram_gb:.1f}GB)", idx
     except Exception:
         pass
 
-    return "cpu", "int8", "CPU 모드 (인텔/AMD 프로세서 INT8 가속)"
+    return "cpu", "int8", "CPU 모드 (인텔/AMD 프로세서 INT8 가속)", 0
 
-WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_HARDWARE_DESC = get_hardware_config()
+WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_HARDWARE_DESC, WHISPER_DEVICE_INDEX = get_hardware_config()
 # Model options: 'large-v3', 'large-v2', 'medium', 'small', 'base'
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")
 # Voice Activity Detection (VAD) filter:

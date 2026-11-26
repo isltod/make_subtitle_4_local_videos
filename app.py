@@ -13,10 +13,8 @@ if sys.platform == "win32":
 from config import (
     GEMINI_MODEL,
     WHISPER_MODEL_SIZE,
-    WHISPER_DEVICE,
-    WHISPER_COMPUTE_TYPE,
-    WHISPER_HARDWARE_DESC,
     WHISPER_VAD_FILTER,
+    get_hardware_config,
     SUPPORTED_VIDEO_EXTS,
     SUPPORTED_SUBTITLE_EXTS,
     TRANSLATION_SYSTEM_PROMPT,
@@ -140,10 +138,11 @@ with st.sidebar:
         help="체크 해제(기본/권장): 전화기 필터 음성, 무전기, BGM이 깔린 대사, 속삭임 등의 누락을 완벽히 방지합니다.\n체크 시: Silero VAD로 무음 구간을 선별하여 처리합니다 (특수 음향 효과 대사가 누락될 수 있음).",
     )
 
-    if WHISPER_DEVICE == "cuda":
-        st.success(f"🎮 **하드웨어 가속**: {WHISPER_HARDWARE_DESC} (`{WHISPER_COMPUTE_TYPE}`)")
+    live_device, live_compute, live_hw_desc, live_device_idx = get_hardware_config()
+    if live_device == "cuda":
+        st.success(f"🎮 **하드웨어 가속**: {live_hw_desc} (`{live_compute}`)")
     else:
-        st.info(f"💻 **하드웨어**: {WHISPER_HARDWARE_DESC}")
+        st.info(f"💻 **하드웨어**: {live_hw_desc}")
         st.caption("💡 GPU가 없는 PC에서는 Whisper 모델을 `medium` 또는 `small`로 선택하시면 훨씬 빠른 속도로 변환할 수 있습니다.")
 
     st.markdown("---")
@@ -250,7 +249,13 @@ with tab_batch:
             log_container = st.container()
 
             # Initialize Pipeline with selected models
-            custom_stt = WhisperTranscriber(model_size=selected_whisper_model, vad_filter=use_vad_filter)
+            custom_stt = WhisperTranscriber(
+                model_size=selected_whisper_model,
+                device=live_device,
+                compute_type=live_compute,
+                vad_filter=use_vad_filter,
+                device_index=live_device_idx,
+            )
             custom_cleaner = GeminiSubtitleCleaner(model_name=selected_gemini_model)
             batch_pipeline = SubtitlePipeline(stt=custom_stt, cleaner=custom_cleaner)
 
@@ -343,7 +348,13 @@ with tab_single:
             single_status.info(f"⏳ {msg}")
             single_prog.progress(int(pct), text=f"{msg} ({pct:.0f}%)")
 
-        custom_stt = WhisperTranscriber(model_size=selected_whisper_model, vad_filter=use_vad_filter)
+        custom_stt = WhisperTranscriber(
+            model_size=selected_whisper_model,
+            device=live_device,
+            compute_type=live_compute,
+            vad_filter=use_vad_filter,
+            device_index=live_device_idx,
+        )
         custom_cleaner = GeminiSubtitleCleaner(model_name=selected_gemini_model)
         single_pipeline = SubtitlePipeline(stt=custom_stt, cleaner=custom_cleaner)
 

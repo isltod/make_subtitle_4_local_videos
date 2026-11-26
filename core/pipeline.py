@@ -136,8 +136,9 @@ class SubtitlePipeline:
             notify(f"🎵 동영상에서 오디오 추출 중 (FFmpeg): {input_file.name}", 10.0)
             temp_wav_path = self.extractor.extract_audio(input_file)
 
-            # 2. Whisper STT (RTX 3090)
-            notify("🎙️ 로컬 RTX 3090 음성 인식(STT) 준비 중...", 30.0)
+            # 2. Whisper STT
+            hw_label = f"GPU ({self.stt.device_index})" if self.stt.device == "cuda" else "CPU"
+            notify(f"🎙️ 로컬 {hw_label} 음성 인식(STT) 준비 중...", 30.0)
             
             def stt_callback(idx, current_sec, total_sec, msg):
                 ratio = min(1.0, current_sec / max(0.1, total_sec))

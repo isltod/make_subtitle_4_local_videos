@@ -19,15 +19,18 @@ from config import (
     WHISPER_MODEL_SIZE,
     WHISPER_DEVICE,
     WHISPER_COMPUTE_TYPE,
+    WHISPER_DEVICE_INDEX,
     WHISPER_VAD_FILTER,
+    get_hardware_config,
 )
 from core.subtitle_parser import SubtitleItem, SubtitleParser
 
 
 class WhisperTranscriber:
-    """Wraps faster-whisper for speech-to-text transcription on GPU (RTX 3090)."""
+    """Wraps faster-whisper for speech-to-text transcription on GPU/CPU with sleep/resume recovery."""
 
     _model_instance: Optional[WhisperModel] = None
+    _model_key: Optional[tuple] = None
 
     # Language-specific punctuated prompts prevent Whisper large-v3 from slipping into
     # lowercase/no-punctuation mode when condition_on_previous_text=False.
@@ -41,90 +44,98 @@ class WhisperTranscriber:
         "es": "¡Hola! Espera un segundo. ¿Qué pasó? ¿De verdad? Sí, entiendo.",
     }
 
+    _CUDA_ERROR_MARKERS = (
+        "cuda",
+        "cublas",
+        "cudnn",
+        "parallel_for",
+        "invalid device",
+        "device ordinal",
+        "out of memory",
+        "gpu is lost",
+    )
+
     def __init__(
         self,
         model_size: str = WHISPER_MODEL_SIZE,
         device: str = WHISPER_DEVICE,
         compute_type: str = WHISPER_COMPUTE_TYPE,
         vad_filter: bool = WHISPER_VAD_FILTER,
+        device_index: int = WHISPER_DEVICE_INDEX,
     ):
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
         self.vad_filter = vad_filter
+        self.device_index = device_index
+
+    @classmethod
+    def _invalidate_model_cache(cls):
+        """Releases cached WhisperModel instance so a fresh CUDA or CPU context can be created."""
+        cls._model_instance = None
+        cls._model_key = None
+
+    @classmethod
+    def _is_cuda_runtime_error(cls, err: Exception) -> bool:
+        msg = str(err).lower()
+        return any(marker in msg for marker in cls._CUDA_ERROR_MARKERS)
 
     def _get_model(self) -> WhisperModel:
-        """Loads and caches the WhisperModel in GPU VRAM (without Windows symlink issues)."""
-        if WhisperTranscriber._model_instance is None:
-            # Check if local model folder exists or download cleanly to models/
-            local_model_dir = Path(__file__).resolve().parent.parent / "models" / f"faster-whisper-{self.model_size}"
-            
-            if local_model_dir.exists() and (local_model_dir / "model.bin").exists():
-                model_target = str(local_model_dir)
-            else:
-                try:
-                    from huggingface_hub import snapshot_download
-                    repo_id = f"Systran/faster-whisper-{self.model_size}"
-                    print(f"📦 Downloading/Verifying Whisper model [{repo_id}] into local folder...")
-                    model_target = snapshot_download(
-                        repo_id=repo_id,
-                        local_dir=str(local_model_dir),
-                    )
-                except Exception:
-                    # Fallback to default name
-                    model_target = self.model_size
+        """Loads and caches the WhisperModel (with automatic CPU fallback if GPU fails)."""
+        local_model_dir = Path(__file__).resolve().parent.parent / "models" / f"faster-whisper-{self.model_size}"
 
-            print(f"📦 Loading Whisper model [{model_target}] on [{self.device}:{self.compute_type}]...")
+        if local_model_dir.exists() and (local_model_dir / "model.bin").exists():
+            model_target = str(local_model_dir)
+        else:
+            try:
+                from huggingface_hub import snapshot_download
+                repo_id = f"Systran/faster-whisper-{self.model_size}"
+                print(f"📦 Downloading/Verifying Whisper model [{repo_id}] into local folder...")
+                model_target = snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=str(local_model_dir),
+                )
+            except Exception:
+                model_target = self.model_size
+
+        desired_key = (model_target, self.device, self.device_index, self.compute_type)
+        if WhisperTranscriber._model_instance is None or WhisperTranscriber._model_key != desired_key:
+            WhisperTranscriber._invalidate_model_cache()
+            print(f"📦 Loading Whisper model [{model_target}] on [{self.device}:{self.device_index} ({self.compute_type})]...")
             t0 = time.time()
             try:
-                WhisperTranscriber._model_instance = WhisperModel(
-                    model_target,
-                    device=self.device,
-                    compute_type=self.compute_type,
-                )
+                kwargs = {"device": self.device, "compute_type": self.compute_type}
+                if self.device == "cuda":
+                    kwargs["device_index"] = self.device_index
+                WhisperTranscriber._model_instance = WhisperModel(model_target, **kwargs)
+                WhisperTranscriber._model_key = desired_key
                 print(f"✅ Whisper model loaded in {time.time() - t0:.2f}s")
             except Exception as e:
                 if self.device != "cpu":
                     print(f"⚠️ GPU 모델 로드 실패 ({e}). 안전한 CPU 모드(int8)로 자동 전환합니다...")
                     self.device = "cpu"
+                    self.device_index = 0
                     self.compute_type = "int8"
                     WhisperTranscriber._model_instance = WhisperModel(
                         model_target,
                         device="cpu",
                         compute_type="int8",
                     )
+                    WhisperTranscriber._model_key = (model_target, "cpu", 0, "int8")
                     print(f"✅ Whisper CPU 모드로 로드 완료 ({time.time() - t0:.2f}s)")
                 else:
                     raise
         return WhisperTranscriber._model_instance
 
-    def transcribe(
+    def _run_transcribe_once(
         self,
-        audio_path: str | Path,
-        language: Optional[str] = None,
-        vad_filter: Optional[bool] = None,
-        progress_callback: Optional[Callable[[int, float, float, str], None]] = None,
-    ) -> List[SubtitleItem]:
-        """
-        Transcribes audio file to a list of SubtitleItem objects with precise timestamps.
-
-        Args:
-            audio_path: Path to the .wav audio file.
-            language: Optional language code (e.g. 'en', 'ja', 'ko', 'zh', or None for auto-detection).
-            vad_filter: Whether to apply Silero VAD to filter out silence/background noise (defaults to instance/config).
-            progress_callback: Optional callback(segment_index, current_timestamp_sec, total_duration_sec, text).
-
-        Returns:
-            List of SubtitleItem objects.
-        """
-        model = self._get_model()
-        audio_file = str(Path(audio_path).resolve())
-
-        # Decode once to numpy array so we can fast-detect language before applying punctuation prompt
-        audio_array = decode_audio(audio_file, sampling_rate=16000)
-
-        actual_vad = self.vad_filter if vad_filter is None else vad_filter
-
+        model: WhisperModel,
+        audio_array,
+        language: Optional[str],
+        actual_vad: bool,
+        progress_callback: Optional[Callable[[int, float, float, str], None]],
+    ) -> tuple[list, str]:
+        """Executes language detection + segment decoding + progress collection."""
         target_language = language
         if not target_language:
             try:
@@ -134,12 +145,14 @@ class WhisperTranscriber:
                     language_detection_segments=1,
                 )
                 target_language = detected_code
-            except Exception:
+            except Exception as e:
+                if self.device != "cpu" and self._is_cuda_runtime_error(e):
+                    raise
                 target_language = None
 
         initial_prompt = self.PUNCTUATION_PROMPTS.get(target_language) if target_language else None
 
-        # Run transcription with faster-whisper on GPU with word-level timestamps & punctuation prompt
+        # Run transcription with word-level timestamps & punctuation prompt.
         # When vad_filter=False (recommended), Whisper's internal hallucination_silence_threshold and no_speech_threshold
         # prevent repetition loops while preserving bandpass telephone speech, whispers, and BGM dialogues.
         # When vad_filter=True, sensitive threshold=0.35 is used.
@@ -181,12 +194,77 @@ class WhisperTranscriber:
                     idx,
                     seg.end,
                     duration,
-                    f"음성 인식(STT) 진행 중: {seg.end/60:.1f}분 / {duration/60:.1f}분 ({idx}개 청크 처리됨)"
+                    f"음성 인식(STT) 진행 중 ({self.device.upper()}): {seg.end/60:.1f}분 / {duration/60:.1f}분 ({idx}개 청크 처리됨)"
+                )
+
+        return raw_segments, detected_lang
+
+    def transcribe(
+        self,
+        audio_path: str | Path,
+        language: Optional[str] = None,
+        vad_filter: Optional[bool] = None,
+        progress_callback: Optional[Callable[[int, float, float, str], None]] = None,
+    ) -> List[SubtitleItem]:
+        """
+        Transcribes audio file to a list of SubtitleItem objects with precise timestamps.
+        Automatically recovers from stale CUDA contexts (e.g. after Windows Sleep/Resume)
+        or incompatible GPU kernels by reloading CUDA or falling back to CPU (int8).
+        """
+        audio_file = str(Path(audio_path).resolve())
+        audio_array = decode_audio(audio_file, sampling_rate=16000)
+        actual_vad = self.vad_filter if vad_filter is None else vad_filter
+
+        had_cached_model = WhisperTranscriber._model_instance is not None
+        model = self._get_model()
+
+        try:
+            raw_segments, detected_lang = self._run_transcribe_once(
+                model, audio_array, language, actual_vad, progress_callback
+            )
+        except Exception as e:
+            if self.device == "cpu" or not self._is_cuda_runtime_error(e):
+                raise
+
+            print(f"⚠️ GPU 추론 중 CUDA 오류 발생 ({e}). 하드웨어 상태를 재점검하고 자동 복구를 시도합니다...")
+            WhisperTranscriber._invalidate_model_cache()
+
+            recovered = False
+            # If failure happened on a previously cached model (e.g., pre-sleep CUDA context),
+            # re-detect hardware once to see if a healthy GPU is still available and reload.
+            if had_cached_model:
+                new_dev, new_comp, _, new_idx = get_hardware_config()
+                if new_dev == "cuda":
+                    self.device = new_dev
+                    self.compute_type = new_comp
+                    self.device_index = new_idx
+                    try:
+                        if progress_callback:
+                            progress_callback(0, 0.0, 1.0, "🔄 절전 모드 복귀 감지: GPU 컨텍스트 재연결 시도 중...")
+                        model = self._get_model()
+                        raw_segments, detected_lang = self._run_transcribe_once(
+                            model, audio_array, language, actual_vad, progress_callback
+                        )
+                        recovered = True
+                    except Exception as retry_err:
+                        print(f"⚠️ GPU 재연결 실패 ({retry_err}). CPU 모드로 안전 전환합니다...")
+                        WhisperTranscriber._invalidate_model_cache()
+
+            if not recovered:
+                if progress_callback:
+                    progress_callback(0, 0.0, 1.0, "⚠️ GPU 연산 불가 — 안전한 CPU 모드(INT8)로 자동 전환하여 진행합니다...")
+                self.device = "cpu"
+                self.device_index = 0
+                self.compute_type = "int8"
+                model = self._get_model()
+                raw_segments, detected_lang = self._run_transcribe_once(
+                    model, audio_array, language, actual_vad, progress_callback
                 )
 
         # Intelligently split into natural sentence-level subtitle items
         items = self._segment_words_to_subtitles(raw_segments, language=detected_lang)
 
+        duration = len(audio_array) / 16000.0
         if progress_callback:
             progress_callback(
                 len(items),
