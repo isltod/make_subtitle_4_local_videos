@@ -141,9 +141,34 @@ with st.sidebar:
     live_device, live_compute, live_hw_desc, live_device_idx = get_hardware_config()
     if live_device == "cuda":
         st.success(f"🎮 **하드웨어 가속**: {live_hw_desc} (`{live_compute}`)")
+        gpu_preset_options = [
+            f"표준 고품질 ({live_compute}, beam=5)",
+            "GPU 안정화 / 저발열 (int8_float16, beam=3 — TDR/오류 방지 추천)",
+            "CPU 안전 실행 (int8, beam=3 — GPU 오류 우회)",
+        ]
+        selected_preset = st.selectbox(
+            "연산 안정성 프리셋",
+            gpu_preset_options,
+            index=0,
+            help="장시간 작업 중 화면 깜빡임(TDR)이나 CUBLAS 오류가 발생하면 'GPU 안정화 / 저발열' 모드를 선택하세요.",
+        )
+        if selected_preset.startswith("GPU 안정화"):
+            run_device, run_compute, run_beam = "cuda", "int8_float16", 3
+        elif selected_preset.startswith("CPU 안전"):
+            run_device, run_compute, run_beam = "cpu", "int8", 3
+        else:
+            run_device, run_compute, run_beam = live_device, live_compute, 5
     else:
         st.info(f"💻 **하드웨어**: {live_hw_desc}")
         st.caption("💡 GPU가 없는 PC에서는 Whisper 모델을 `medium` 또는 `small`로 선택하시면 훨씬 빠른 속도로 변환할 수 있습니다.")
+        cpu_preset_options = [
+            "CPU 균형 모드 (int8, beam=3 — 속도 우선 추천)",
+            "CPU 정밀 모드 (int8, beam=5 — 정확도 우선)",
+        ]
+        selected_preset = st.selectbox("CPU 연산 프리셋", cpu_preset_options, index=0)
+        run_device = "cpu"
+        run_compute = "int8"
+        run_beam = 3 if "beam=3" in selected_preset else 5
 
     st.markdown("---")
     st.subheader("📝 맞춤 번역 지시사항 (선택)")
@@ -251,10 +276,11 @@ with tab_batch:
             # Initialize Pipeline with selected models
             custom_stt = WhisperTranscriber(
                 model_size=selected_whisper_model,
-                device=live_device,
-                compute_type=live_compute,
+                device=run_device,
+                compute_type=run_compute,
                 vad_filter=use_vad_filter,
                 device_index=live_device_idx,
+                beam_size=run_beam,
             )
             custom_cleaner = GeminiSubtitleCleaner(model_name=selected_gemini_model)
             batch_pipeline = SubtitlePipeline(stt=custom_stt, cleaner=custom_cleaner)
@@ -350,10 +376,11 @@ with tab_single:
 
         custom_stt = WhisperTranscriber(
             model_size=selected_whisper_model,
-            device=live_device,
-            compute_type=live_compute,
+            device=run_device,
+            compute_type=run_compute,
             vad_filter=use_vad_filter,
             device_index=live_device_idx,
+            beam_size=run_beam,
         )
         custom_cleaner = GeminiSubtitleCleaner(model_name=selected_gemini_model)
         single_pipeline = SubtitlePipeline(stt=custom_stt, cleaner=custom_cleaner)

@@ -20,6 +20,7 @@ from config import (
     WHISPER_DEVICE,
     WHISPER_COMPUTE_TYPE,
     WHISPER_DEVICE_INDEX,
+    WHISPER_BEAM_SIZE,
     WHISPER_VAD_FILTER,
     get_hardware_config,
 )
@@ -62,12 +63,14 @@ class WhisperTranscriber:
         compute_type: str = WHISPER_COMPUTE_TYPE,
         vad_filter: bool = WHISPER_VAD_FILTER,
         device_index: int = WHISPER_DEVICE_INDEX,
+        beam_size: int = WHISPER_BEAM_SIZE,
     ):
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
         self.vad_filter = vad_filter
         self.device_index = device_index
+        self.beam_size = beam_size
 
     @classmethod
     def _invalidate_model_cache(cls):
@@ -157,12 +160,13 @@ class WhisperTranscriber:
         # prevent repetition loops while preserving bandpass telephone speech, whispers, and BGM dialogues.
         # When vad_filter=True, sensitive threshold=0.35 is used.
         vad_params = dict(threshold=0.35, min_silence_duration_ms=350, speech_pad_ms=250) if actual_vad else None
+        temp_fallback = (0.0, 0.2, 0.4) if self.beam_size <= 3 else (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 
         segments, info = model.transcribe(
             audio_array,
             language=target_language,
-            beam_size=5,
-            temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+            beam_size=self.beam_size,
+            temperature=temp_fallback,
             condition_on_previous_text=True,
             initial_prompt=initial_prompt,
             vad_filter=actual_vad,
