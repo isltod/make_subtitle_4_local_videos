@@ -200,6 +200,8 @@ def build_portable():
     # 5. Copy Application Source Code
     log("프로그램 소스 코드 복사 중...")
     copy_tree_filtered(REPO_ROOT / "core", PORTABLE_DIR / "core")
+    if (REPO_ROOT / "tools").exists():
+        copy_tree_filtered(REPO_ROOT / "tools", PORTABLE_DIR / "tools")
     for f in ["app.py", "config.py", "requirements.txt", ".env.example"]:
         src_f = REPO_ROOT / f
         if src_f.exists():

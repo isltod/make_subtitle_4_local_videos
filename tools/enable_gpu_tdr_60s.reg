@@ -1,0 +1,7 @@
+Windows Registry Editor Version 5.00
+
+; Increase Windows GPU TDR (Timeout Detection and Recovery) timeout from 2s to 60s.
+; Prevents display driver reset (Event ID 4101 / CUBLAS_STATUS_EXECUTION_FAILED) during heavy AI inference.
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\GraphicsDrivers]
+"TdrDelay"=dword:0000003c
+"TdrDdiDelay"=dword:0000003c

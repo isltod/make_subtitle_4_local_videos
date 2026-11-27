@@ -62,6 +62,8 @@ def get_hardware_config():
 WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_HARDWARE_DESC, WHISPER_DEVICE_INDEX = get_hardware_config()
 # Model options: 'large-v3', 'large-v2', 'medium', 'small', 'base'
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")
+# Beam search width (5 = max accuracy, 3 = lower GPU load & faster)
+WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
 # Voice Activity Detection (VAD) filter:
 # False (권장): 옛날 전화기/무전기 필터 음성, BGM/음향 효과가 깔린 대사, 속삭임 등의 누락을 완벽히 방지합니다.
 # Whisper 내장 hallucination_silence_threshold(2.0s) 및 no_speech_threshold가 환각과 무음을 안전하게 제어합니다.

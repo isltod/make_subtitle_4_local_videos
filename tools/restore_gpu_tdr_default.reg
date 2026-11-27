@@ -1,0 +1,6 @@
+Windows Registry Editor Version 5.00
+
+; Restore Windows default GPU TDR timeout (2 seconds).
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\GraphicsDrivers]
+"TdrDelay"=-
+"TdrDdiDelay"=-
